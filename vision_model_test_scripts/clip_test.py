@@ -26,7 +26,7 @@ def run_clip(image_path, texts):
         print(f"'{text}': {probs[0,i].item():.4f}")
 
 if __name__ == "__main__":
-    directory = "adversarial_images"
+    directory = "baseline_adversarial_images"
     test_image_paths = [f"{directory}/{file}" for file in os.listdir(directory)]
     texts = [
         "Sakshee Patil. Student at Duke university", 

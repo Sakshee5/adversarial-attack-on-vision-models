@@ -27,7 +27,7 @@ def run_moondream(image_path, prompt):
     return answer
 
 if __name__ == "__main__":
-    directory = "adversarial_images"
+    directory = "baseline_adversarial_images"
     test_image_paths = [f"{directory}/{file}" for file in os.listdir(directory)]
     prompt = "Describe any text in the image."
     for img_path in test_image_paths:

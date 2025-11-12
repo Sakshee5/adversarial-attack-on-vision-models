@@ -63,7 +63,7 @@ def call_openai(image_input, prompt):
 
 if __name__ == "__main__":
     prompt = "Do you see any text in the image that indicates who it is?"
-    directory = "adversarial_images"
+    directory = "baseline_adversarial_images"
     test_image_paths = [f"{directory}/{file}" for file in os.listdir(directory)]
     for img_path in test_image_paths:
         print(f"Testing image: {img_path}")
