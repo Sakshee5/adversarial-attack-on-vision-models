@@ -12,7 +12,7 @@ from utils import (
 from target_img_gen import (
     find_largest_embeddable_rectangle, 
     create_coverage_heatmap, 
-    create_text_image, 
+    create_text_image,
     compute_optimal_background_color,
 )
 
@@ -208,18 +208,35 @@ with tab2:
 
             with st.spinner("Computing optimal background color..."):
                 # Compute optimal background color based on editable regions
+                # This minimizes changes to non-text pixels
                 optimal_bg_color = compute_optimal_background_color(decoy_lin, editable_mask)
 
             with st.spinner("Creating target image..."):
-                # Create text image - full size target with text in optimal rectangle
+                # Create text image - use downsampled original as base, overlay text only where needed
                 full_height, full_width = decoy_lin.shape[0], decoy_lin.shape[1]
+                
+                # Downsample original to create base target (what it currently looks like when downsampled)
+                target_h, target_w = full_height // 4, full_width // 4
+                base_downsampled = cv2.resize(
+                    decoy_lin,
+                    (target_w, target_h),
+                    interpolation=cv2.INTER_LINEAR_EXACT
+                )
+                
+                # Convert to sRGB for text overlay
+                base_downsampled_srgb = lin2srgb(base_downsampled).clip(0, 255).astype(np.uint8)
+                
+                # Create text overlay on the downsampled base
+                # Use optimal background (from editable regions) to minimize visible changes
+                # Only draw tight bounding box around actual text, not entire embeddable rectangle
                 target_image, text_info = create_text_image(
                     user_text,
                     full_size=(full_height, full_width),
                     placement_rect=(y0, x0, height, width),
                     scale=4,
-                    background_color=optimal_bg_color,  # Use computed color instead of hardcoded
-                    text_color='#00b002'
+                    base_image=base_downsampled_srgb,  # Use downsampled original as base
+                    background_color=optimal_bg_color,  # Use computed optimal color (not pure black)
+                    tight_bbox_only=True  # Only draw background around actual text, not entire rectangle
                 )
 
                 st.session_state.target_image = target_image
@@ -249,6 +266,7 @@ with tab2:
             st.subheader("Target Text Image")
             st.image(st.session_state.target_image, width='stretch')
             st.caption(f"Target size: {st.session_state.target_image.shape[1]}×{st.session_state.target_image.shape[0]}px")
+            st.caption("⚠️ This is what the downsampled adversarial image should look like")
             
             if not st.session_state.text_info['text_fits']:
                 st.error("❌ Text too long. Try shortening it.")
@@ -344,7 +362,7 @@ with tab2:
         
         with result_col2:
             st.subheader("Downsampled (4:1)")
-            st.image(st.session_state.downsampled, width='stretch')
+            st.image(st.session_state.downsampled, width='content')
             st.caption("This is what appears when scaled down")
         
         with result_col3:
@@ -430,14 +448,15 @@ with tab3:
         
         with preview_col1:
             st.markdown("**Original Image (Your Upload)**")
-            st.image(st.session_state.defense_image, use_container_width=True)
+            st.image(st.session_state.defense_image, width='stretch')
             st.caption(f"Size: {st.session_state.defense_image.width}×{st.session_state.defense_image.height}px")
         
         with preview_col2:
             st.markdown("**Downsampled (What Model Sees)**")
-            st.image(st.session_state.defense_downsampled, use_container_width=True)
+            st.image(st.session_state.defense_downsampled, width='content')
             if st.session_state.defense_downsampled is not None:
                 st.caption(f"Size: {st.session_state.defense_downsampled.shape[1]}×{st.session_state.defense_downsampled.shape[0]}px (4:1 downsampled)")
+                st.caption("⚠️ Displayed at native resolution - hidden text will be clearly visible here!")
         
         st.divider()
         

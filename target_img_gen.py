@@ -193,10 +193,24 @@ def create_text_image(
     full_size: Tuple[int, int],
     placement_rect: Tuple[int, int, int, int],
     scale: int = 4,
+    base_image: np.ndarray = None,
     background_color: str = '#333333',
-    text_color: str = '#00b002'
+    text_color: str = '#00b002',
+    tight_bbox_only: bool = False
 ) -> Tuple[np.ndarray, dict]:
-    """Create text image with auto-sized font to optimally fill placement area."""
+    """Create text image with auto-sized font to optimally fill placement area.
+    
+    Args:
+        text: Text to render
+        full_size: Full resolution size (H, W) before downsampling
+        placement_rect: Rectangle for text placement (y0, x0, height, width) in full resolution
+        scale: Downsampling scale factor
+        base_image: Optional base image to overlay text on (downsampled resolution). 
+                   If None, uses solid background_color.
+        background_color: Background color for text region (hex string like '#1a2b3c')
+        text_color: Color for text (ignored if using red-channel-only mode)
+        tight_bbox_only: If True, only draw background around tight text bbox, not entire placement_rect
+    """
     H_full, W_full = full_size
     y0, x0, rect_height, rect_width = placement_rect
     
@@ -205,7 +219,13 @@ def create_text_image(
     target_width = rect_width // scale
     
     # Create full-size target image
-    image = Image.new('RGB', (W_full // scale, H_full // scale), color=background_color)
+    if base_image is not None:
+        # Use provided base image (downsampled original)
+        image = Image.fromarray(base_image)
+    else:
+        # Fallback to solid color background
+        image = Image.new('RGB', (W_full // scale, H_full // scale), color=background_color)
+    
     draw = ImageDraw.Draw(image)
     
     # Define text area with margin
@@ -241,6 +261,19 @@ def create_text_image(
     target_x0 = x0 // scale
     
     if text_fits and wrapped_lines:
+        # Parse background color and create red-channel-only version
+        # We want subtle contrast: small red channel difference that's invisible at high-res but visible when downsampled
+        bg_r, bg_g, bg_b = int(background_color[1:3], 16), int(background_color[3:5], 16), int(background_color[5:7], 16)
+        
+        # Background: Red=0 (dark), keep G/B from optimal color
+        text_bg_color = (0, bg_g, bg_b)
+        
+        # Text: Use SUBTLE red value (not 255!) - just enough to be visible when downsampled
+        # The key: small difference at high-res → invisible, accumulates to visible when downsampled
+        # Typical: 60-100 is subtle but effective. Higher = more visible at high-res, lower = less visible when downsampled
+        subtle_red_value = 100  # Experiment with 60-120 range
+        subtle_red_text = (subtle_red_value, 0, 0)  # Subtle red, not pure red!
+        
         sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
         line_height = sample_bbox[3] - sample_bbox[1]
         text_ascent = sample_bbox[1]
@@ -249,6 +282,40 @@ def create_text_image(
         # Center text vertically in the rectangle
         start_y = target_y0 + margin + (text_area_height - total_height) // 2 - text_ascent
         
+        # Compute tight bounding box if requested
+        if tight_bbox_only:
+            # Calculate actual text bounds
+            min_x, min_y = float('inf'), start_y
+            max_x, max_y = 0, start_y + total_height
+            
+            for i, line in enumerate(wrapped_lines):
+                y = start_y + i * line_height
+                bbox = draw.textbbox((0, y), line, font=font)
+                line_width = bbox[2] - bbox[0]
+                x = target_x0 + margin + (text_area_width - line_width) // 2
+                min_x = min(min_x, x)
+                max_x = max(max_x, x + line_width)
+            
+            # Add small padding around text
+            padding = 5
+            tight_x0 = max(target_x0, int(min_x) - padding)
+            tight_y0 = max(target_y0, int(min_y) - padding)
+            tight_x1 = min(target_x0 + target_width, int(max_x) + padding)
+            tight_y1 = min(target_y0 + target_height, int(max_y) + padding)
+            
+            # Draw background only around tight text region
+            draw.rectangle(
+                [tight_x0, tight_y0, tight_x1, tight_y1],
+                fill=text_bg_color
+            )
+        else:
+            # Draw background for entire placement rectangle
+            draw.rectangle(
+                [target_x0, target_y0, target_x0 + target_width, target_y0 + target_height],
+                fill=text_bg_color
+            )
+        
+        # Draw text
         for i, line in enumerate(wrapped_lines):
             y = start_y + i * line_height
             if y + line_height > target_y0 + target_height - margin:
@@ -258,7 +325,8 @@ def create_text_image(
             line_width = bbox[2] - bbox[0]
             x = target_x0 + margin + (text_area_width - line_width) // 2
             
-            draw.text((x, y), line, font=font, fill=text_color)
+            # Use subtle red for text (small red channel value → invisible at high-res, visible when downsampled)
+            draw.text((x, y), line, font=font, fill=subtle_red_text)
     
     info = {
         'target_rect': (target_y0, target_x0, target_height, target_width),
