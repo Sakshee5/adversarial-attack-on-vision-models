@@ -208,9 +208,13 @@ with tab2:
                 st.session_state.rect_coords = (y0, x0, height, width)
 
             with st.spinner("Computing optimal background color..."):
-                # Compute optimal background color based on editable regions
-                # This minimizes changes to non-text pixels
-                optimal_bg_color = compute_optimal_background_color(decoy_lin, editable_mask)
+                # Compute optimal background color based on editable regions within placement rectangle
+                # This minimizes changes even further by analyzing only the local region
+                optimal_bg_color = compute_optimal_background_color(
+                    decoy_lin, 
+                    editable_mask,
+                    placement_rect=(y0, x0, height, width)
+                )
 
             with st.spinner("Calculating optimal font size..."):
                 # Calculate optimal font size for the text

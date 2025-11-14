@@ -79,23 +79,39 @@ def largest_rectangle_in_histogram(
 
 def compute_optimal_background_color(
     decoy_lin: npt.NDArray[np.float32],
-    editable_mask: npt.NDArray[np.bool_]
+    editable_mask: npt.NDArray[np.bool_],
+    placement_rect: Tuple[int, int, int, int] = None
 ) -> str:
     """
-    Compute optimal background color based on editable regions of decoy.
+    Compute optimal background color based on editable regions within placement area.
     
     This analyzes the color distribution in the editable (dark) regions of the decoy
-    and returns a representative color that minimizes the embedding effort.
+    specifically within the text placement rectangle, and returns a representative 
+    color that minimizes the embedding effort.
     
     Args:
         decoy_lin: Decoy image in linear RGB space (H, W, 3)
         editable_mask: Boolean mask of editable pixels (H, W)
+        placement_rect: Optional (y0, x0, height, width) rectangle to restrict analysis.
+                       If None, uses all editable regions (legacy behavior).
     
     Returns:
         Hex color string (e.g., '#1a2b3c')
     """
-    # Extract editable pixels (where mask is True)
-    editable_pixels = decoy_lin[editable_mask]
+    # If placement_rect provided, create a localized mask
+    if placement_rect is not None:
+        y0, x0, rect_height, rect_width = placement_rect
+        # Create a mask for the placement rectangle
+        localized_mask = np.zeros_like(editable_mask)
+        localized_mask[y0:y0+rect_height, x0:x0+rect_width] = True
+        # Combine with editable mask: only pixels that are both in rect AND editable
+        combined_mask = editable_mask & localized_mask
+    else:
+        # Legacy behavior: use all editable regions
+        combined_mask = editable_mask
+    
+    # Extract editable pixels within the target region
+    editable_pixels = decoy_lin[combined_mask]
     
     if len(editable_pixels) == 0:
         # Fallback to default dark grey
@@ -315,7 +331,7 @@ def create_text_image(
         # Text: Use SUBTLE red value (not 255!) - just enough to be visible when downsampled
         # The key: small difference at high-res → invisible, accumulates to visible when downsampled
         # Typical: 60-100 is subtle but effective. Higher = more visible at high-res, lower = less visible when downsampled
-        subtle_red_value = 80  # Experiment with 60-120 range
+        subtle_red_value = 60  # Experiment with 60-120 range
         subtle_red_text = (subtle_red_value, 0, 0)  # Subtle red, not pure red!
         
         sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
