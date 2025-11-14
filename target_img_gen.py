@@ -79,23 +79,39 @@ def largest_rectangle_in_histogram(
 
 def compute_optimal_background_color(
     decoy_lin: npt.NDArray[np.float32],
-    editable_mask: npt.NDArray[np.bool_]
+    editable_mask: npt.NDArray[np.bool_],
+    placement_rect: Tuple[int, int, int, int] = None
 ) -> str:
     """
-    Compute optimal background color based on editable regions of decoy.
+    Compute optimal background color based on editable regions within placement area.
     
     This analyzes the color distribution in the editable (dark) regions of the decoy
-    and returns a representative color that minimizes the embedding effort.
+    specifically within the text placement rectangle, and returns a representative 
+    color that minimizes the embedding effort.
     
     Args:
         decoy_lin: Decoy image in linear RGB space (H, W, 3)
         editable_mask: Boolean mask of editable pixels (H, W)
+        placement_rect: Optional (y0, x0, height, width) rectangle to restrict analysis.
+                       If None, uses all editable regions (legacy behavior).
     
     Returns:
         Hex color string (e.g., '#1a2b3c')
     """
-    # Extract editable pixels (where mask is True)
-    editable_pixels = decoy_lin[editable_mask]
+    # If placement_rect provided, create a localized mask
+    if placement_rect is not None:
+        y0, x0, rect_height, rect_width = placement_rect
+        # Create a mask for the placement rectangle
+        localized_mask = np.zeros_like(editable_mask)
+        localized_mask[y0:y0+rect_height, x0:x0+rect_width] = True
+        # Combine with editable mask: only pixels that are both in rect AND editable
+        combined_mask = editable_mask & localized_mask
+    else:
+        # Legacy behavior: use all editable regions
+        combined_mask = editable_mask
+    
+    # Extract editable pixels within the target region
+    editable_pixels = decoy_lin[combined_mask]
     
     if len(editable_pixels) == 0:
         # Fallback to default dark grey
@@ -188,25 +204,34 @@ def wrap_text_to_fit(text: str, font: ImageFont.FreeTypeFont, draw: ImageDraw.Dr
     return lines
 
 
-def create_text_image(
+def calculate_optimal_font_size(
     text: str,
-    full_size: Tuple[int, int],
     placement_rect: Tuple[int, int, int, int],
     scale: int = 4,
-    background_color: str = '#333333',
-    text_color: str = '#00b002'
-) -> Tuple[np.ndarray, dict]:
-    """Create text image with auto-sized font to optimally fill placement area."""
-    H_full, W_full = full_size
+    max_font_size: int = 64,
+    min_font_size: int = 8
+) -> Tuple[int, bool, List[str]]:
+    """Calculate optimal font size to fit text in placement area.
+    
+    Args:
+        text: Text to render
+        placement_rect: Rectangle for text placement (y0, x0, height, width) in full resolution
+        scale: Downsampling scale factor
+        max_font_size: Maximum font size to try
+        min_font_size: Minimum acceptable font size
+    
+    Returns:
+        Tuple of (font_size, text_fits, wrapped_lines)
+    """
     y0, x0, rect_height, rect_width = placement_rect
     
     # Target dimensions (downsampled)
     target_height = rect_height // scale
     target_width = rect_width // scale
     
-    # Create full-size target image
-    image = Image.new('RGB', (W_full // scale, H_full // scale), color=background_color)
-    draw = ImageDraw.Draw(image)
+    # Create temporary image for text measurement
+    temp_image = Image.new('RGB', (target_width, target_height), color='#000000')
+    draw = ImageDraw.Draw(temp_image)
     
     # Define text area with margin
     margin = max(10, min(target_width, target_height) // 20)
@@ -214,9 +239,9 @@ def create_text_image(
     text_area_height = target_height - 2 * margin
     
     # Auto-calculate optimal font size - start large and reduce until it fits
-    font_size = min(64, target_width, target_height)  # Cap at 64pt for readability
-    min_font_size = 8
+    font_size = min(max_font_size, target_width, target_height)  # Cap at max_font_size for readability
     text_fits = False
+    wrapped_lines = []
     
     while font_size >= min_font_size:
         font = load_font(font_size)
@@ -236,11 +261,79 @@ def create_text_image(
         
         font_size -= 2
     
+    return font_size, text_fits, wrapped_lines
+
+
+def create_text_image(
+    text: str,
+    full_size: Tuple[int, int],
+    placement_rect: Tuple[int, int, int, int],
+    font_size: int,
+    scale: int = 4,
+    base_image: np.ndarray = None,
+    background_color: str = '#333333',
+    text_color: str = '#00b002',
+    tight_bbox_only: bool = False
+) -> Tuple[np.ndarray, dict]:
+    """Create text image with specified font size.
+    
+    Args:
+        text: Text to render
+        full_size: Full resolution size (H, W) before downsampling
+        placement_rect: Rectangle for text placement (y0, x0, height, width) in full resolution
+        font_size: Font size to use for text rendering
+        scale: Downsampling scale factor
+        base_image: Optional base image to overlay text on (downsampled resolution). 
+                   If None, uses solid background_color.
+        background_color: Background color for text region (hex string like '#1a2b3c')
+        text_color: Color for text (ignored if using red-channel-only mode)
+        tight_bbox_only: If True, only draw background around tight text bbox, not entire placement_rect
+    """
+    H_full, W_full = full_size
+    y0, x0, rect_height, rect_width = placement_rect
+    
+    # Target dimensions (downsampled)
+    target_height = rect_height // scale
+    target_width = rect_width // scale
+    
+    # Create full-size target image
+    if base_image is not None:
+        # Use provided base image (downsampled original)
+        image = Image.fromarray(base_image)
+    else:
+        # Fallback to solid color background
+        image = Image.new('RGB', (W_full // scale, H_full // scale), color=background_color)
+    
+    draw = ImageDraw.Draw(image)
+    
+    # Define text area with margin
+    margin = max(10, min(target_width, target_height) // 20)
+    text_area_width = target_width - 2 * margin
+    text_area_height = target_height - 2 * margin
+    
+    # Load font and wrap text
+    font = load_font(font_size)
+    wrapped_lines = wrap_text_to_fit(text, font, draw, text_area_width)
+    text_fits = len(wrapped_lines) > 0
+    
     # Draw text in the placement rectangle
     target_y0 = y0 // scale
     target_x0 = x0 // scale
     
     if text_fits and wrapped_lines:
+        # Parse background color and create red-channel-only version
+        # We want subtle contrast: small red channel difference that's invisible at high-res but visible when downsampled
+        bg_r, bg_g, bg_b = int(background_color[1:3], 16), int(background_color[3:5], 16), int(background_color[5:7], 16)
+        
+        # Background: Red=0 (dark), keep G/B from optimal color
+        text_bg_color = (0, bg_g, bg_b)
+        
+        # Text: Use SUBTLE red value (not 255!) - just enough to be visible when downsampled
+        # The key: small difference at high-res → invisible, accumulates to visible when downsampled
+        # Typical: 60-100 is subtle but effective. Higher = more visible at high-res, lower = less visible when downsampled
+        subtle_red_value = 60  # Experiment with 60-120 range
+        subtle_red_text = (subtle_red_value, 0, 0)  # Subtle red, not pure red!
+        
         sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
         line_height = sample_bbox[3] - sample_bbox[1]
         text_ascent = sample_bbox[1]
@@ -249,6 +342,40 @@ def create_text_image(
         # Center text vertically in the rectangle
         start_y = target_y0 + margin + (text_area_height - total_height) // 2 - text_ascent
         
+        # Compute tight bounding box if requested
+        if tight_bbox_only:
+            # Calculate actual text bounds
+            min_x, min_y = float('inf'), start_y
+            max_x, max_y = 0, start_y + total_height
+            
+            for i, line in enumerate(wrapped_lines):
+                y = start_y + i * line_height
+                bbox = draw.textbbox((0, y), line, font=font)
+                line_width = bbox[2] - bbox[0]
+                x = target_x0 + margin + (text_area_width - line_width) // 2
+                min_x = min(min_x, x)
+                max_x = max(max_x, x + line_width)
+            
+            # Add small padding around text
+            padding = 5
+            tight_x0 = max(target_x0, int(min_x) - padding)
+            tight_y0 = max(target_y0, int(min_y) - padding)
+            tight_x1 = min(target_x0 + target_width, int(max_x) + padding)
+            tight_y1 = min(target_y0 + target_height, int(max_y) + padding)
+            
+            # Draw background only around tight text region
+            draw.rectangle(
+                [tight_x0, tight_y0, tight_x1, tight_y1],
+                fill=text_bg_color
+            )
+        else:
+            # Draw background for entire placement rectangle
+            draw.rectangle(
+                [target_x0, target_y0, target_x0 + target_width, target_y0 + target_height],
+                fill=text_bg_color
+            )
+        
+        # Draw text
         for i, line in enumerate(wrapped_lines):
             y = start_y + i * line_height
             if y + line_height > target_y0 + target_height - margin:
@@ -258,7 +385,8 @@ def create_text_image(
             line_width = bbox[2] - bbox[0]
             x = target_x0 + margin + (text_area_width - line_width) // 2
             
-            draw.text((x, y), line, font=font, fill=text_color)
+            # Use subtle red for text (small red channel value → invisible at high-res, visible when downsampled)
+            draw.text((x, y), line, font=font, fill=subtle_red_text)
     
     info = {
         'target_rect': (target_y0, target_x0, target_height, target_width),
