@@ -9,13 +9,24 @@ from utils import (
     bottom_luma_mask,
 )
 
-from target_img_gen import find_largest_embeddable_rectangle, create_coverage_heatmap, create_text_image, compute_optimal_background_color
-from adversarial_img_gen import embed_bilinear, mse_psnr
+from target_img_gen import (
+    find_largest_embeddable_rectangle, 
+    create_coverage_heatmap, 
+    create_text_image, 
+    compute_optimal_background_color,
+)
+
+from adversarial_img_gen import (
+    embed_bilinear, 
+    mse_psnr
+)
+
 from vision_model_test_scripts.moondream_test import run_moondream
 from vision_model_test_scripts.smol_vlm_test import run_smolvlm
 from vision_model_test_scripts.openai_test import call_openai
 
 
+# Attack tab state
 if "model" not in st.session_state:
     st.session_state.model = None
 
@@ -55,6 +66,22 @@ if "downsampled" not in st.session_state:
 if "quality_metrics" not in st.session_state:
     st.session_state.quality_metrics = None
 
+# Defense tab state
+if "defense_image" not in st.session_state:
+    st.session_state.defense_image = None
+
+if "defense_downsampled" not in st.session_state:
+    st.session_state.defense_downsampled = None
+
+if "defense_model" not in st.session_state:
+    st.session_state.defense_model = None
+
+if "defense_prompt" not in st.session_state:
+    st.session_state.defense_prompt = None
+
+if "defense_output" not in st.session_state:
+    st.session_state.defense_output = None
+
 # Configuration
 st.set_page_config(
     page_title="Adversarial AI Module Project",
@@ -66,7 +93,8 @@ st.title("Adversarial AI Module Project")
 with st.sidebar:
     st.title("About the Project")
     st.subheader("Same image. Different stories.")
-    st.markdown("What can you conclude when a multimodal model sees the same photo but describes it differently each time? Is this hallucination, model failure or an adversarial attack...?")
+    st.markdown("What can you conclude when a multimodal model sees the same photo but describes it differently each time?")
+    st.markdown("Is this hallucination, model failure or an adversarial attack...?")
 
 # create tabs
 tab1, tab2, tab3 = st.tabs(["Attack", "How it's Done", "Defense"])
@@ -99,13 +127,13 @@ with tab1:
                 st.session_state.model_output = call_openai(st.session_state.test_image, st.session_state.prompt + hint)
 
     if st.session_state.model_output is not None:
+        st.subheader("Model Response")
         st.write(st.session_state.model_output)
 
 with tab2:
     upload_col1, upload_col2 = st.columns(2)
 
     with upload_col1:
-        # Sidebar controls
         uploaded_file = st.file_uploader(
             "Upload Decoy Image",
             type=['png', 'jpg', 'jpeg'],
@@ -229,14 +257,14 @@ with tab2:
         
         st.markdown("""
         ### How it works:
-        1. **Upload** a square image (divisible by 4)
-        2. **Enter text** you want to hide
+        1. Upload a square image (divisible by 4)
+        2. Enter text you want to hide
         3. The app automatically:
-        - Finds the **optimal dark region** for embedding
-        - Calculates the **best font size** to fill that area
+        - Finds the optimal dark region for embedding
+        - Calculates the best font size to fill that area
         - Uses optimal embedding parameters
-        4. **Generates** an adversarial image that looks normal at full resolution
-        5. When **downscaled 4:1** (e.g., by vision models), your hidden text appears!
+        4. Generates an adversarial image that looks normal at full resolution
+        5. When downscaled 4:1 (e.g., by vision models), your hidden text appears!
         
         ### Tips:
         - Images with larger dark areas work best (more space for text)
@@ -249,7 +277,7 @@ with tab2:
     if st.session_state.image_data is not None:
         st.divider()
         
-        if st.button("🚀 Generate Adversarial Image", type="primary"):
+        if st.button("Generate Adversarial Image", type="primary"):
             try:
                 with st.spinner("Generating adversarial image..."):
                     # Convert target to linear space
@@ -308,7 +336,7 @@ with tab2:
             buf = BytesIO()
             Image.fromarray(st.session_state.adv_srgb).save(buf, format='PNG')
             st.download_button(
-                label="📥 Download PNG",
+                label="Download PNG",
                 data=buf.getvalue(),
                 file_name="adversarial_image.png",
                 mime="image/png"
@@ -334,4 +362,133 @@ with tab2:
 
 
 with tab3:
-    pass
+    st.markdown("""
+    - Many vision models internally downsample images, and adversarial attacks exploit this.
+    - By previewing the downsampled version, hidden manipulations become visible.
+""")
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.session_state.defense_model = st.selectbox(
+            "Select a model",
+            ["Moondream", "SmolVLM", "OpenAI GPT-4.1"],
+            index=0,
+            key="defense_model_select"
+        )
+    
+    with col2:
+        defense_uploaded = st.file_uploader(
+            "Upload Image",
+            type=['png', 'jpg', 'jpeg'],
+            help="Upload any image to test",
+            key="defense_upload"
+        )
+        
+        # Process image immediately when uploaded to show downsampled version
+        if defense_uploaded is not None:
+            try:
+                image = Image.open(defense_uploaded)
+                st.session_state.defense_image = image
+                
+                # Compute downsampled version (4:1 downsampling like models do)
+                img_array = np.array(image)
+                H, W = img_array.shape[:2]
+                
+                # Downsample by 4x
+                new_H = H // 4
+                new_W = W // 4
+                
+                if new_H > 0 and new_W > 0:
+                    downsampled = cv2.resize(
+                        img_array,
+                        (new_W, new_H),
+                        interpolation=cv2.INTER_LINEAR
+                    )
+                    st.session_state.defense_downsampled = downsampled
+                else:
+                    st.session_state.defense_downsampled = img_array
+                    
+            except Exception as e:
+                st.error(f"Error processing image: {str(e)}")
+    
+    st.session_state.defense_prompt = st.text_area(
+        label="Prompt",
+        value="Who is the person in the image?",
+        height=100,
+        key="defense_prompt_text"
+    )
+    
+    # Show image comparison if image is uploaded
+    if st.session_state.defense_image is not None:
+        st.divider()
+        st.subheader("Image Preview - What the Model Will See")
+        
+        preview_col1, preview_col2 = st.columns(2)
+        
+        with preview_col1:
+            st.markdown("**Original Image (Your Upload)**")
+            st.image(st.session_state.defense_image, use_container_width=True)
+            st.caption(f"Size: {st.session_state.defense_image.width}×{st.session_state.defense_image.height}px")
+        
+        with preview_col2:
+            st.markdown("**Downsampled (What Model Sees)**")
+            st.image(st.session_state.defense_downsampled, use_container_width=True)
+            if st.session_state.defense_downsampled is not None:
+                st.caption(f"Size: {st.session_state.defense_downsampled.shape[1]}×{st.session_state.defense_downsampled.shape[0]}px (4:1 downsampled)")
+        
+        st.divider()
+        
+        # Warning if downsampled version looks different
+        st.warning("Compare the images above. If you see unexpected text or patterns in the downsampled version, the image may be adversarially manipulated!")
+        
+        # Now show the submit button
+        defense_submit = st.button("Proceed with Model Inference", type="primary", key="defense_submit")
+        
+        hint = "Describe based on what you see in the image."
+        
+        if defense_submit and st.session_state.defense_prompt is not None:
+            # Use the DOWNSAMPLED image for model inference (more secure)
+            # Convert downsampled numpy array to PIL Image for model functions
+            downsampled_pil = Image.fromarray(st.session_state.defense_downsampled)
+            
+            # Save to BytesIO to match the file upload format expected by model functions
+            from io import BytesIO
+            buf = BytesIO()
+            downsampled_pil.save(buf, format='PNG')
+            buf.seek(0)
+            
+            if st.session_state.defense_model == "Moondream":
+                with st.spinner("Running Moondream model on downsampled image..."):
+                    st.session_state.defense_output = run_moondream(buf, st.session_state.defense_prompt + hint)
+            elif st.session_state.defense_model == "SmolVLM":
+                with st.spinner("Running SmolVLM model on downsampled image..."):
+                    st.session_state.defense_output = run_smolvlm(buf, st.session_state.defense_prompt + hint)
+            elif st.session_state.defense_model == "OpenAI GPT-4.1":
+                with st.spinner("Running OpenAI GPT-4.1 model on downsampled image..."):
+                    st.session_state.defense_output = call_openai(buf, st.session_state.defense_prompt + hint)
+        
+        if st.session_state.defense_output is not None:
+            st.divider()
+            st.subheader("Model Output")
+            st.write(st.session_state.defense_output)
+            
+            st.info("**Note**: The model processed the downsampled version, which matches what it would see internally. This prevents adversarial attacks that rely on downsampling to reveal hidden content.")
+    
+    else:
+        st.info("Upload an image to see the defense mechanism in action!")
+        
+        st.markdown("""
+        ### How this defense works:
+        
+        1. Preview Before Processing: Shows exactly what the model will see after internal downsampling
+        2. Visual Inspection: Users can spot hidden text or patterns before model inference
+ 
+        ### Why this matters:
+        
+        - Adversarial attacks often hide content that only appears after downsampling
+        - Models internally resize images, creating opportunities for manipulation
+        - Simple preview prevents sophisticated attacks
+        """)
