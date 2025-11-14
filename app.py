@@ -14,6 +14,7 @@ from target_img_gen import (
     create_coverage_heatmap, 
     create_text_image,
     compute_optimal_background_color,
+    calculate_optimal_font_size,
 )
 
 from adversarial_img_gen import (
@@ -211,6 +212,14 @@ with tab2:
                 # This minimizes changes to non-text pixels
                 optimal_bg_color = compute_optimal_background_color(decoy_lin, editable_mask)
 
+            with st.spinner("Calculating optimal font size..."):
+                # Calculate optimal font size for the text
+                font_size, text_fits, wrapped_lines = calculate_optimal_font_size(
+                    user_text,
+                    placement_rect=(y0, x0, height, width),
+                    scale=4
+                )
+                
             with st.spinner("Creating target image..."):
                 # Create text image - use downsampled original as base, overlay text only where needed
                 full_height, full_width = decoy_lin.shape[0], decoy_lin.shape[1]
@@ -233,6 +242,7 @@ with tab2:
                     user_text,
                     full_size=(full_height, full_width),
                     placement_rect=(y0, x0, height, width),
+                    font_size=font_size,  # Pass calculated font size
                     scale=4,
                     base_image=base_downsampled_srgb,  # Use downsampled original as base
                     background_color=optimal_bg_color,  # Use computed optimal color (not pure black)

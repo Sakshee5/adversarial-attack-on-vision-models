@@ -188,22 +188,84 @@ def wrap_text_to_fit(text: str, font: ImageFont.FreeTypeFont, draw: ImageDraw.Dr
     return lines
 
 
+def calculate_optimal_font_size(
+    text: str,
+    placement_rect: Tuple[int, int, int, int],
+    scale: int = 4,
+    max_font_size: int = 64,
+    min_font_size: int = 8
+) -> Tuple[int, bool, List[str]]:
+    """Calculate optimal font size to fit text in placement area.
+    
+    Args:
+        text: Text to render
+        placement_rect: Rectangle for text placement (y0, x0, height, width) in full resolution
+        scale: Downsampling scale factor
+        max_font_size: Maximum font size to try
+        min_font_size: Minimum acceptable font size
+    
+    Returns:
+        Tuple of (font_size, text_fits, wrapped_lines)
+    """
+    y0, x0, rect_height, rect_width = placement_rect
+    
+    # Target dimensions (downsampled)
+    target_height = rect_height // scale
+    target_width = rect_width // scale
+    
+    # Create temporary image for text measurement
+    temp_image = Image.new('RGB', (target_width, target_height), color='#000000')
+    draw = ImageDraw.Draw(temp_image)
+    
+    # Define text area with margin
+    margin = max(10, min(target_width, target_height) // 20)
+    text_area_width = target_width - 2 * margin
+    text_area_height = target_height - 2 * margin
+    
+    # Auto-calculate optimal font size - start large and reduce until it fits
+    font_size = min(max_font_size, target_width, target_height)  # Cap at max_font_size for readability
+    text_fits = False
+    wrapped_lines = []
+    
+    while font_size >= min_font_size:
+        font = load_font(font_size)
+        wrapped_lines = wrap_text_to_fit(text, font, draw, text_area_width)
+        
+        if not wrapped_lines:
+            font_size -= 2
+            continue
+        
+        sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
+        line_height = sample_bbox[3] - sample_bbox[1]
+        total_height = len(wrapped_lines) * line_height
+        
+        if total_height <= text_area_height:
+            text_fits = True
+            break
+        
+        font_size -= 2
+    
+    return font_size, text_fits, wrapped_lines
+
+
 def create_text_image(
     text: str,
     full_size: Tuple[int, int],
     placement_rect: Tuple[int, int, int, int],
+    font_size: int,
     scale: int = 4,
     base_image: np.ndarray = None,
     background_color: str = '#333333',
     text_color: str = '#00b002',
     tight_bbox_only: bool = False
 ) -> Tuple[np.ndarray, dict]:
-    """Create text image with auto-sized font to optimally fill placement area.
+    """Create text image with specified font size.
     
     Args:
         text: Text to render
         full_size: Full resolution size (H, W) before downsampling
         placement_rect: Rectangle for text placement (y0, x0, height, width) in full resolution
+        font_size: Font size to use for text rendering
         scale: Downsampling scale factor
         base_image: Optional base image to overlay text on (downsampled resolution). 
                    If None, uses solid background_color.
@@ -233,28 +295,10 @@ def create_text_image(
     text_area_width = target_width - 2 * margin
     text_area_height = target_height - 2 * margin
     
-    # Auto-calculate optimal font size - start large and reduce until it fits
-    font_size = min(64, target_width, target_height)  # Cap at 64pt for readability
-    min_font_size = 8
-    text_fits = False
-    
-    while font_size >= min_font_size:
-        font = load_font(font_size)
-        wrapped_lines = wrap_text_to_fit(text, font, draw, text_area_width)
-        
-        if not wrapped_lines:
-            font_size -= 2
-            continue
-        
-        sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
-        line_height = sample_bbox[3] - sample_bbox[1]
-        total_height = len(wrapped_lines) * line_height
-        
-        if total_height <= text_area_height:
-            text_fits = True
-            break
-        
-        font_size -= 2
+    # Load font and wrap text
+    font = load_font(font_size)
+    wrapped_lines = wrap_text_to_fit(text, font, draw, text_area_width)
+    text_fits = len(wrapped_lines) > 0
     
     # Draw text in the placement rectangle
     target_y0 = y0 // scale
@@ -271,7 +315,7 @@ def create_text_image(
         # Text: Use SUBTLE red value (not 255!) - just enough to be visible when downsampled
         # The key: small difference at high-res → invisible, accumulates to visible when downsampled
         # Typical: 60-100 is subtle but effective. Higher = more visible at high-res, lower = less visible when downsampled
-        subtle_red_value = 100  # Experiment with 60-120 range
+        subtle_red_value = 80  # Experiment with 60-120 range
         subtle_red_text = (subtle_red_value, 0, 0)  # Subtle red, not pure red!
         
         sample_bbox = draw.textbbox((0, 0), "Ay", font=font)
