@@ -96,10 +96,11 @@ with st.sidebar:
     st.title("About the Project")
     st.subheader("Same image. Different stories.")
     st.markdown("What can you conclude when a multimodal model sees the same photo but describes it differently each time?")
+    st.markdown("""What if you upload an image of a flower wanting to know its name, but the model ends up mailing sensitive information to someone?""")
     st.markdown("Is this hallucination, model failure or an adversarial attack...?")
 
 # create tabs
-tab1, tab2, tab3 = st.tabs(["Attack", "How it's Done", "Defense"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Attack", "How it's Done", "Defense", "Adversarial Examples", "Impact Assessment", "Responsible Disclosure"])
 
 with tab1:
 
@@ -607,3 +608,19 @@ with tab3:
         - Models internally resize images, creating opportunities for manipulation
         - Simple preview prevents sophisticated attacks
         """)
+
+with tab4:
+    pass
+
+with tab5:
+    # read the impact assessment markdown file
+    with open("docs/impactAssessment.md", "r") as file:
+        impact_assessment = file.read()
+    st.markdown(impact_assessment)
+
+
+with tab6:
+    # read the responsible disclosure markdown file
+    with open("docs/responsibleDisclosure.md", "r") as file:
+        responsible_disclosure = file.read()
+    st.markdown(responsible_disclosure)

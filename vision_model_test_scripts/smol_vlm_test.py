@@ -40,7 +40,7 @@ def run_smolvlm(image_path, prompt):
     return assistant_response
 
 if __name__ == "__main__":
-    directory = "baseline_adversarial_images"
+    directory = "adversarial_images"
     test_image_paths = [f"{directory}/{file}" for file in os.listdir(directory)]
     prompt = "Describe any text in the image."
     for img_path in test_image_paths:
