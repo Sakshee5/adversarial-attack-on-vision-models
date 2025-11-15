@@ -331,7 +331,7 @@ def create_text_image(
         # Text: Use SUBTLE red value (not 255!) - just enough to be visible when downsampled
         # The key: small difference at high-res → invisible, accumulates to visible when downsampled
         # Typical: 60-100 is subtle but effective. Higher = more visible at high-res, lower = less visible when downsampled
-        subtle_red_value = 60  # Experiment with 60-120 range
+        subtle_red_value = 90  # Experiment with 60-120 range
         subtle_red_text = (subtle_red_value, 0, 0)  # Subtle red, not pure red!
         
         sample_bbox = draw.textbbox((0, 0), "Ay", font=font)

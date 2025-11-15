@@ -26,12 +26,12 @@ def run_clip(image_path, texts):
         print(f"'{text}': {probs[0,i].item():.4f}")
 
 if __name__ == "__main__":
-    directory = "baseline_adversarial_images"
+    directory = "adversarial_images"
     test_image_paths = [f"{directory}/{file}" for file in os.listdir(directory)]
     texts = [
         "Sakshee Patil. Student at Duke university", 
-        "Tanaya Chaudhary. Working at TCS", 
-        "Myra Patel. High school chemistry teacher"
+        "Tanaya Chaudhary. Applied AI at OpenAI", 
+        "Myra Patel. Suspected of committing fraud"
         ]
     for img_path in test_image_paths:
         print(f"Testing image: {img_path}")
