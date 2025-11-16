@@ -1,6 +1,6 @@
 ### Exploiting Predictable Downscaling Algorithms
 
-This project explores image-scaling–based prompt injection attacks on multimodal LLMs. These attacks don't require knowledge of a model's internal preprocessing pipelines. They exploit predictable behaviors from common downsampling algorithms.
+This project explores image-scaling based prompt injection attacks on multimodal LLMs. These attacks don't require knowledge of a model's internal preprocessing pipelines. They exploit predictable behaviors from common downsampling algorithms.
 
 ### Preprocessing is transparent to attackers, opaque to users.
 

@@ -204,6 +204,164 @@ def wrap_text_to_fit(text: str, font: ImageFont.FreeTypeFont, draw: ImageDraw.Dr
     return lines
 
 
+def find_optimal_text_subregion(
+    decoy_lin: npt.NDArray[np.float32],
+    editable_mask: npt.NDArray[np.bool_],
+    embeddable_rect: Tuple[int, int, int, int],
+    text: str,
+    scale: int = 4,
+    min_margin_ratio: float = 0.1,
+    max_margin_ratio: float = 0.3
+) -> Tuple[int, int, int, int]:
+    """
+    Find optimal sub-rectangle within embeddable rectangle for text placement.
+    
+    Optimizes for:
+    - Distance from rectangle edges (safety margins)
+    - Coverage of darkest/most-editable pixels
+    - Avoidance of bright regions
+    - Aspect ratio appropriate for text
+    
+    Args:
+        decoy_lin: Decoy image in linear RGB space (H, W, 3)
+        editable_mask: Boolean mask of editable pixels (H, W)
+        embeddable_rect: Embeddable rectangle (y0, x0, height, width)
+        text: Text to embed (used for aspect ratio estimation)
+        scale: Downsampling scale factor
+        min_margin_ratio: Minimum margin as ratio of rectangle dimension
+        max_margin_ratio: Maximum margin as ratio of rectangle dimension
+    
+    Returns:
+        Optimal sub-rectangle (y0, x0, height, width)
+    """
+    y0, x0, rect_height, rect_width = embeddable_rect
+    
+    # Extract region of interest
+    roi_mask = editable_mask[y0:y0+rect_height, x0:x0+rect_width]
+    roi_lin = decoy_lin[y0:y0+rect_height, x0:x0+rect_width]
+    
+    # Compute luminance map (lower = darker = better)
+    roi_luma = 0.2126 * roi_lin[..., 0] + 0.7152 * roi_lin[..., 1] + 0.0722 * roi_lin[..., 2]
+    
+    # Generate candidate aspect ratios to try
+    # Aspect ratios: (height_ratio, width_ratio)
+    aspect_ratios = [
+        (1.0, 1.0),   # Square
+        (1.5, 1.0),   # Tall
+        (2.0, 1.0),   # Very tall
+        (1.0, 1.5),   # Wide
+        (1.0, 2.0),   # Very wide
+        (1.2, 1.0),   # Slightly tall
+        (1.0, 1.2),   # Slightly wide
+    ]
+    
+    best_score = -float('inf')
+    best_subregion = embeddable_rect  # Fallback to original
+    
+    # Try different margin sizes
+    for margin_ratio in np.linspace(min_margin_ratio, max_margin_ratio, 5):
+        margin_h = int(rect_height * margin_ratio)
+        margin_w = int(rect_width * margin_ratio)
+        
+        # Ensure we have space left after margins
+        if rect_height - 2 * margin_h < scale * 10 or rect_width - 2 * margin_w < scale * 10:
+            continue
+        
+        # Try different aspect ratios
+        for h_ratio, w_ratio in aspect_ratios:
+            # Calculate candidate dimensions
+            available_h = rect_height - 2 * margin_h
+            available_w = rect_width - 2 * margin_w
+            
+            # Apply aspect ratio constraint
+            if h_ratio / w_ratio > available_h / available_w:
+                # Height-constrained
+                cand_height = available_h
+                cand_width = int(available_h * w_ratio / h_ratio)
+            else:
+                # Width-constrained
+                cand_width = available_w
+                cand_height = int(available_w * h_ratio / w_ratio)
+            
+            # Ensure minimum size
+            if cand_height < scale * 10 or cand_width < scale * 10:
+                continue
+            
+            # Try different positions within the margin space
+            for v_offset in [0.0, 0.3, 0.5, 0.7, 1.0]:
+                for h_offset in [0.0, 0.3, 0.5, 0.7, 1.0]:
+                    # Calculate position
+                    v_space = rect_height - cand_height
+                    h_space = rect_width - cand_width
+                    
+                    sub_y = int(v_space * v_offset)
+                    sub_x = int(h_space * h_offset)
+                    
+                    # Extract sub-region
+                    sub_mask = roi_mask[sub_y:sub_y+cand_height, sub_x:sub_x+cand_width]
+                    sub_luma = roi_luma[sub_y:sub_y+cand_height, sub_x:sub_x+cand_width]
+                    
+                    if sub_mask.size == 0:
+                        continue
+                    
+                    # Calculate scores
+                    
+                    # 1. Editable coverage (0-1, higher is better)
+                    editable_coverage = np.sum(sub_mask) / sub_mask.size
+                    
+                    # 2. Darkness score (0-1, darker is better)
+                    # Only consider editable pixels
+                    if np.sum(sub_mask) > 0:
+                        avg_luma = np.mean(sub_luma[sub_mask])
+                        darkness_score = 1.0 - min(1.0, avg_luma)  # Normalize assuming luma in [0,1]
+                    else:
+                        darkness_score = 0.0
+                    
+                    # 3. Distance from edges (0-1, higher is better)
+                    center_y = sub_y + cand_height / 2
+                    center_x = sub_x + cand_width / 2
+                    dist_from_edge_y = min(center_y, rect_height - center_y) / (rect_height / 2)
+                    dist_from_edge_x = min(center_x, rect_width - center_x) / (rect_width / 2)
+                    edge_distance_score = (dist_from_edge_y + dist_from_edge_x) / 2
+                    
+                    # 4. Bright region avoidance (0-1, higher is better)
+                    # Penalize if there are bright spots in the region
+                    max_luma = np.max(sub_luma)
+                    bright_penalty = max(0, max_luma - 0.5) / 0.5  # Penalize if max luma > 0.5
+                    bright_avoidance_score = 1.0 - bright_penalty
+                    
+                    # 5. Text fit estimate (0-1, higher is better)
+                    # Quick heuristic: larger area is better for fitting text
+                    area_ratio = (cand_height * cand_width) / (rect_height * rect_width)
+                    text_fit_score = min(1.0, area_ratio * 2)  # Prefer at least 50% of area
+                    
+                    # Combined score (weighted)
+                    score = (
+                        editable_coverage * 0.3 +
+                        darkness_score * 0.25 +
+                        edge_distance_score * 0.2 +
+                        bright_avoidance_score * 0.15 +
+                        text_fit_score * 0.1
+                    )
+                    
+                    # Bonus for better aspect ratios with text
+                    # Prefer regions that aren't too extreme
+                    aspect = cand_height / cand_width
+                    if 0.5 <= aspect <= 2.0:
+                        score *= 1.1
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_subregion = (
+                            y0 + sub_y,
+                            x0 + sub_x,
+                            cand_height,
+                            cand_width
+                        )
+    
+    return best_subregion
+
+
 def calculate_optimal_font_size(
     text: str,
     placement_rect: Tuple[int, int, int, int],

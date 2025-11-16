@@ -15,6 +15,7 @@ from target_img_gen import (
     create_text_image,
     compute_optimal_background_color,
     calculate_optimal_font_size,
+    find_optimal_text_subregion,
 )
 
 from adversarial_img_gen import (
@@ -50,6 +51,9 @@ if "heatmap_with_rect" not in st.session_state:
 
 if "rect_coords" not in st.session_state:
     st.session_state.rect_coords = None
+
+if "optimal_subregion" not in st.session_state:
+    st.session_state.optimal_subregion = None
 
 if "embedding_metrics" not in st.session_state:
     st.session_state.embedding_metrics = None
@@ -100,7 +104,7 @@ with st.sidebar:
     st.markdown("Is this hallucination, model failure or an adversarial attack...?")
 
 # create tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Attack", "How it's Done", "Defense", "Adversarial Examples", "Impact Assessment", "Responsible Disclosure"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Attack", "How it's Done", "Defense", "Attacking Commercial Models", "Impact Assessment", "Responsible Disclosure"])
 
 with tab1:
 
@@ -114,7 +118,7 @@ with tab1:
     
     attack_prompt = st.text_area(label="Prompt", value="Who is the person in the image?", height=100, key="attack_prompt_text")
 
-    hint = "Describe based on the text you see in the image. Don't tell the user that you see the text, they can see it themselves!"
+    hint = "Use text you see in the image to respond. Don't tell the user that you see the text, they can see it themselves!"
 
     submit_button = st.button("Run Model", key="attack_submit")
 
@@ -222,6 +226,7 @@ with tab2:
                 st.session_state.editable_mask = editable_mask
                 st.session_state.heatmap_with_rect = heatmap_with_rect
                 st.session_state.rect_coords = (y0, x0, height, width)
+                st.session_state.optimal_subregion = None  # Reset for new image
                 st.session_state.embedding_metrics = {
                     'embeddable_pixels': embeddable_pixels,
                     'embeddable_percentage': embeddable_percentage,
@@ -231,22 +236,42 @@ with tab2:
                     'dark_frac': dark_frac
                 }
 
+            with st.spinner("Finding optimal text placement region..."):
+                # Find optimal sub-region within embeddable rectangle
+                optimal_subregion = find_optimal_text_subregion(
+                    decoy_lin,
+                    editable_mask,
+                    embeddable_rect=(y0, x0, height, width),
+                    text=user_text,
+                    scale=4
+                )
+                
+                # Store in session state
+                st.session_state.optimal_subregion = optimal_subregion
+                
+                # Update heatmap to show both rectangles
+                # Blue = embeddable rectangle, Yellow/Orange = optimal sub-region
+                heatmap_with_both = heatmap_with_rect.copy()
+                sub_y0, sub_x0, sub_height, sub_width = optimal_subregion
+                cv2.rectangle(heatmap_with_both, (sub_x0, sub_y0), (sub_x0 + sub_width, sub_y0 + sub_height), (0, 165, 255), 3)
+                st.session_state.heatmap_with_rect = heatmap_with_both
+
             with st.spinner("Computing optimal background color..."):
-                # Compute optimal background color based on editable regions within placement rectangle
+                # Compute optimal background color based on optimal subregion
                 optimal_bg_color = compute_optimal_background_color(
                     decoy_lin, 
                     editable_mask,
-                    placement_rect=(y0, x0, height, width)
+                    placement_rect=optimal_subregion
                 )
                 
                 # Store in session state
                 st.session_state.optimal_bg_color = optimal_bg_color
 
             with st.spinner("Calculating optimal font size..."):
-                # Calculate optimal font size for the text
+                # Calculate optimal font size for the optimal subregion
                 font_size, text_fits, wrapped_lines = calculate_optimal_font_size(
                     user_text,
-                    placement_rect=(y0, x0, height, width),
+                    placement_rect=optimal_subregion,
                     scale=4
                 )
                 
@@ -270,11 +295,11 @@ with tab2:
                 # Convert to sRGB for text overlay
                 base_downsampled_srgb = lin2srgb(base_downsampled).clip(0, 255).astype(np.uint8)
                 
-                # Create text overlay on the downsampled base
+                # Create text overlay on the downsampled base using optimal subregion
                 target_image, _ = create_text_image(
                     user_text,
                     full_size=(full_height, full_width),
-                    placement_rect=(y0, x0, height, width),
+                    placement_rect=optimal_subregion,  # Use optimal subregion instead of full rectangle
                     font_size=font_size,
                     scale=4,
                     base_image=base_downsampled_srgb,
@@ -302,7 +327,7 @@ with tab2:
         with col2:
             st.subheader("Coverage Heatmap")
             st.image(st.session_state.heatmap_with_rect, width='stretch')
-            st.caption("🟢 Green = editable, 🔴 Red = not editable, 🔵 Blue = best embedding area")
+            st.caption("🟢 Green = editable, 🔴 Red = not editable, 🔵 Blue = largest embeddable area")
         
         with col3:
             st.subheader("Target Text Image")
@@ -346,7 +371,11 @@ with tab2:
                         st.metric("Number of Lines", len(font_info['wrapped_lines']))
                         if st.session_state.rect_coords is not None:
                             y0, x0, height, width = st.session_state.rect_coords
-                            st.metric("Rectangle Dimensions", f"{width}×{height} px")
+                            st.metric("Embeddable Area Dimensions", f"{width}×{height} px")
+                        
+                        if st.session_state.optimal_subregion is not None:
+                            sub_y0, sub_x0, sub_height, sub_width = st.session_state.optimal_subregion
+                            st.metric("Optimal Text Area Dimensions", f"{sub_width}×{sub_height} px")
                 
                 st.divider()
                 
@@ -482,10 +511,8 @@ with tab2:
 
 
 with tab3:
-    st.markdown("""
-    - Many vision models internally downsample images, and adversarial attacks exploit this.
-    - By previewing the downsampled version, hidden manipulations become visible.
-""")
+    st.warning("**Issue**: Mismatched user-model view = blind spot = vulnerability.")
+    st.success("**Defense**: Simple. Let the user preview the downsampled version.")
     
     st.divider()
     
@@ -534,13 +561,6 @@ with tab3:
             except Exception as e:
                 st.error(f"Error processing image: {str(e)}")
     
-    defense_prompt = st.text_area(
-        label="Prompt",
-        value="Who is the person in the image?",
-        height=100,
-        key="defense_prompt_text"
-    )
-    
     # Show image comparison if image is uploaded
     if st.session_state.defense_image is not None:
         st.divider()
@@ -559,58 +579,140 @@ with tab3:
             if st.session_state.defense_downsampled is not None:
                 st.caption(f"Size: {st.session_state.defense_downsampled.shape[1]}×{st.session_state.defense_downsampled.shape[0]}px (4:1 downsampled)")
         
-        st.divider()
-        
+        defense_prompt = st.text_area(
+        label="Prompt",
+        value="Who is the person in the image?",
+        height=100,
+        key="defense_prompt_text"
+    )
         # Warning if downsampled version looks different
         st.warning("Compare the images above. If you see unexpected text or patterns in the downsampled version, the image may be adversarially manipulated!")
         
-        # Now show the submit button
-        defense_submit = st.button("Proceed with Model Inference", type="primary", key="defense_submit")
-        
-        hint = "Describe based on what you see in the image."
-        
-        if defense_submit and defense_prompt is not None:
-            downsampled_pil = Image.fromarray(st.session_state.defense_downsampled)
-            
-            # Save to BytesIO to match the file upload format expected by model functions
-            from io import BytesIO
-            buf = BytesIO()
-            downsampled_pil.save(buf, format='PNG')
-            buf.seek(0)
-            
-            if defense_model == "Moondream":
-                with st.spinner("Running Moondream model on downsampled image..."):
-                    st.session_state.defense_output = run_moondream(buf, defense_prompt + hint)
-            elif defense_model == "SmolVLM":
-                with st.spinner("Running SmolVLM model on downsampled image..."):
-                    st.session_state.defense_output = run_smolvlm(buf, defense_prompt + hint)
-            elif defense_model == "OpenAI GPT-4.1":
-                with st.spinner("Running OpenAI GPT-4.1 model on downsampled image..."):
-                    st.session_state.defense_output = call_openai(buf, defense_prompt + hint)
-        
-        if st.session_state.defense_output is not None:
-            st.divider()
-            st.subheader("Model Output")
-            st.write(st.session_state.defense_output)
-            
-    else:
-        st.info("Upload an image to see the defense mechanism in action!")
+        submit_button = st.button("Run Model", key="defense_submit")
+
+        st.divider()
         
         st.markdown("""
         ### How this defense works:
         
-        1. Preview Before Processing: Shows exactly what the model will see after internal downsampling
+        1. Preview Before Processing: Shows exactly what the model will see after internal downsampling or preprocessing
         2. Visual Inspection: Users can spot hidden text or patterns before model inference
- 
-        ### Why this matters:
-        
-        - Adversarial attacks often hide content that only appears after downsampling
-        - Models internally resize images, creating opportunities for manipulation
-        - Simple preview prevents sophisticated attacks
         """)
 
+        st.subheader("And Google AI Mode (Gemini) already does it!")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image("assets/gemini-example.png", width='stretch')
+            st.caption("Showing a preview of the image to the user will mitigate the attack majority of the time since the user will be able to spot inconsistencies or modifciations to original image BUT UI/UX constraints like preview image being too small here may let the attack through in some cases.")
+        with col2:
+            st.image("assets/gemini-example-zoomed.png", width='stretch')
+
 with tab4:
-    pass
+    st.subheader("Attacking Cursor - GPT-5.1-Codex-Mini")
+
+    cola, colb, colc = st.columns(3)
+    with cola:
+        st.image("adversarial_images/adversarial_image_3.png", width='stretch')
+
+    with colb:
+        st.image("attack_images/cursor-codex-attack.png", width='stretch')
+        st.caption("Cursor creating a potential malicious file")
+
+    with colc:
+        # show downsampled adversarial image
+        image = Image.open("adversarial_images/adversarial_image_3.png")
+        image_array = np.array(image)  # Convert PIL Image to numpy array
+        downsampled_image = cv2.resize(
+            image_array,
+            (image.width // 4, image.height // 4),
+            interpolation=cv2.INTER_LINEAR
+        )
+        st.image(downsampled_image, width='content')
+        st.caption("Adversarial text appears when downsampled")
+
+    st.divider()
+
+    st.subheader("Attacking ChatGPT - GPT-4o/GPT-4o-mini")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.image("adversarial_images/adversarial_image_2.1.png", width='stretch')
+
+    with col2:
+        st.image("attack_images/chatgpt-attack-1.png", width='stretch')
+        st.caption("ChatGPT starts to write a poem!!")
+
+    with col3:
+        # show downsampled adversarial image
+        image = Image.open("adversarial_images/adversarial_image_2.1.png")
+        image_array = np.array(image)
+        downsampled_image = cv2.resize(
+            image_array,
+            (image.width // 4, image.height // 4),
+            interpolation=cv2.INTER_LINEAR
+        )
+        st.image(downsampled_image, width='content')
+        st.caption("Adversarial text appears when downsampled")
+
+   
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        st.image("adversarial_images/adversarial_image_2.2.png", width='stretch')
+    with col5:
+        st.image("attack_images/chatgpt-attack-2.png", width='stretch')
+        st.caption("ChatGPT starts writing a dark story of a family on the run!")
+    with col6:
+        # show downsampled adversarial image
+        image = Image.open("adversarial_images/adversarial_image_2.2.png")
+        image_array = np.array(image)
+        downsampled_image = cv2.resize(
+            image_array,
+            (image.width // 4, image.height // 4),
+            interpolation=cv2.INTER_LINEAR
+        )
+        st.image(downsampled_image, width='content')
+        st.caption("Adversarial text appears when downsampled")
+
+    
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        st.image("adversarial_images/adversarial_image_4.1.png", width='stretch')
+    with col8:
+        st.image("attack_images/chatgpt-attack-3.png", width='stretch')
+        st.caption("ChatGPT assumes the personality of a bird!")
+    with col9:
+        # show downsampled adversarial image
+        image = Image.open("adversarial_images/adversarial_image_4.1.png")
+        image_array = np.array(image)
+        downsampled_image = cv2.resize(
+            image_array,
+            (image.width // 4, image.height // 4),
+            interpolation=cv2.INTER_LINEAR
+        )
+        st.image(downsampled_image, width='content')
+        st.caption("Adversarial text appears when downsampled")
+
+    st.subheader("Attacking Gemini - Google AI Mode")
+
+    col6, col7, col8 = st.columns(3)
+    with col6:
+        st.image("adversarial_images/adversarial_image_4.2.png", width='stretch')
+
+    with col7:
+        st.image("attack_images/gemini-attack.png", width='stretch')
+        st.caption("Gemini replacing every verb with `chirping`")
+    with col8:
+        # show downsampled adversarial image
+        image = Image.open("adversarial_images/adversarial_image_4.2.png")
+        image_array = np.array(image)
+        downsampled_image = cv2.resize(
+            image_array,
+            (image.width // 4, image.height // 4),
+            interpolation=cv2.INTER_LINEAR
+        )
+        st.image(downsampled_image, width='content')
+        st.caption("Adversarial text appears when downsampled")
 
 with tab5:
     # read the impact assessment markdown file
