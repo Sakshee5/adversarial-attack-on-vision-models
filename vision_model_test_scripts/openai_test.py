@@ -5,9 +5,6 @@ import os
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
-
 # Function to encode the image
 def encode_image(image_input):
     """
@@ -27,17 +24,28 @@ def encode_image(image_input):
         with open(image_input, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode("utf-8")
 
-def call_openai(image_input, prompt):
+def call_openai(image_input, prompt, api_key=None):
     """
     Call OpenAI Vision API with an image and prompt.
     
     Args:
         image_input: Either a file path (str) or Streamlit UploadedFile object
         prompt: Text prompt for the model
+        api_key: Optional OpenAI API key. If not provided, uses OPENAI_API_KEY from environment
     
     Returns:
         Model's response text
     """
+    # Use provided API key or fall back to environment variable
+    if api_key is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+    
+    if not api_key:
+        raise ValueError("OpenAI API key not provided. Please set OPENAI_API_KEY environment variable or provide api_key parameter.")
+    
+    # Create client with the API key
+    client = OpenAI(api_key=api_key)
+    
     # Encode the image
     base64_image = encode_image(image_input)
     

@@ -2,6 +2,8 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 import cv2
+import os
+from dotenv import load_dotenv
 
 from utils import (
     srgb2lin, 
@@ -27,6 +29,12 @@ from vision_model_test_scripts.moondream_test import run_moondream
 from vision_model_test_scripts.smol_vlm_test import run_smolvlm
 from vision_model_test_scripts.openai_test import call_openai
 
+# Load environment variables
+load_dotenv()
+
+# OpenAI API Key
+if "openai_api_key" not in st.session_state:
+    st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 
 # Attack Tab
 if "attack_model_output" not in st.session_state:
@@ -85,8 +93,6 @@ if "defense_image" not in st.session_state:
 if "defense_downsampled" not in st.session_state:
     st.session_state.defense_downsampled = None
 
-if "defense_output" not in st.session_state:
-    st.session_state.defense_output = None
 
 # Configuration
 st.set_page_config(
@@ -102,6 +108,26 @@ with st.sidebar:
     st.markdown("What can you conclude when a multimodal model sees the same photo but describes it differently each time?")
     st.markdown("""What if you upload an image of a flower wanting to know its name, but the model ends up mailing sensitive information to someone?""")
     st.markdown("Is this hallucination, model failure or an adversarial attack...?")
+    
+    st.divider()
+    
+    # OpenAI API Key Input
+    st.subheader("Configuration")
+    api_key_input = st.text_input(
+        "OpenAI API Key",
+        value=st.session_state.openai_api_key,
+        type="password",
+        help="Enter your OpenAI API key for GPT-4 testing. Will use .env file if not provided.",
+        placeholder="sk-..."
+    )
+    
+    if api_key_input != st.session_state.openai_api_key:
+        st.session_state.openai_api_key = api_key_input
+    
+    if st.session_state.openai_api_key:
+        st.success("API key configured")
+    else:
+        st.warning("No API key set (OpenAI testing disabled)")
 
 # create tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Attack", "How it's Done", "Defense", "Attacking Commercial Models", "Impact Assessment", "Responsible Disclosure"])
@@ -130,8 +156,19 @@ with tab1:
             with st.spinner("Running SmolVLM model..."):
                 st.session_state.attack_model_output = run_smolvlm(attack_image, attack_prompt + hint)
         elif attack_model == "OpenAI GPT-4.1":
-            with st.spinner("Running OpenAI GPT-4.1 model..."):
-                st.session_state.attack_model_output = call_openai(attack_image, attack_prompt + hint)
+            if not st.session_state.openai_api_key:
+                st.error(" Please provide an OpenAI API key in the sidebar to use GPT-4.1")
+            else:
+                with st.spinner("Running OpenAI GPT-4.1 model..."):
+                    try:
+                        st.session_state.attack_model_output = call_openai(
+                            attack_image, 
+                            attack_prompt + hint,
+                            api_key=st.session_state.openai_api_key
+                        )
+                    except Exception as e:
+                        st.error(f"Error calling OpenAI API: {str(e)}")
+                        st.session_state.attack_model_output = None
 
     if st.session_state.attack_model_output is not None:
         st.subheader("Model Response")
