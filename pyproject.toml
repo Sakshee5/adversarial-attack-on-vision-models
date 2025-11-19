@@ -6,33 +6,23 @@ name = "adversarial-attack-on-vision-models"
 version = "0.1.0"
 description = "Image-scaling based prompt injection attacks on multimodal LLMs"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
-    "streamlit>=1.28.0",
-    "numpy>=1.24.0",
-    "pillow>=10.0.0",
-    "opencv-python-headless>=4.8.0",
-    "python-dotenv>=1.0.0",
+    "streamlit==1.51.0",
+    "numpy==2.2.6",
+    "pillow==12.0.0",
+    "opencv-python-headless==4.12.0.88",
+    "python-dotenv==1.2.1",
+    "torch==2.9.1",
+    "transformers==4.57.1",
+    "accelerate==1.11.0",
+    "openai==2.7.2",
 ]
 
 [project.optional-dependencies]
-# For local model testing (Moondream, SmolVLM, CLIP)
-# Note: installs CPU version by default. For GPU support, install torch with CUDA first:
+# All dependencies are now included in the main dependencies section above
+# For GPU support, install torch with CUDA separately:
 # pip install torch --index-url https://download.pytorch.org/whl/cu121
-models = [
-    "torch>=2.0.0",
-    "transformers>=4.35.0",
-]
-# For OpenAI API testing only
-openai = [
-    "openai>=1.0.0",
-]
-# Everything (for full functionality)
-all = [
-    "torch>=2.0.0",
-    "transformers>=4.35.0",
-    "openai>=1.0.0",
-]
 
 [build-system]
 requires = ["hatchling"]
