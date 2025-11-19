@@ -32,13 +32,35 @@ from vision_model_test_scripts.openai_test import call_openai
 # Load environment variables
 load_dotenv()
 
+# Cache markdown file reading
+@st.cache_data
+def read_markdown_file(filepath):
+    """Read and cache markdown files"""
+    with open(filepath, "r") as file:
+        return file.read()
+
+# Cache image loading
+@st.cache_data
+def load_image(filepath):
+    """Load and cache images to avoid repeated disk I/O"""
+    return Image.open(filepath)
+
+# Cache downsampled images
+@st.cache_data
+def get_downsampled_image(filepath, scale=4):
+    """Load image and return downsampled version (cached)"""
+    image = Image.open(filepath)
+    image_array = np.array(image)
+    downsampled = cv2.resize(
+        image_array,
+        (image.width // scale, image.height // scale),
+        interpolation=cv2.INTER_LINEAR
+    )
+    return downsampled
+
 # OpenAI API Key
 if "openai_api_key" not in st.session_state:
     st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-
-# Attack Tab
-if "attack_model_output" not in st.session_state:
-    st.session_state.attack_model_output = None
 
 # How It's Done Tab - Image Processing
 if "decoy_image" not in st.session_state:
@@ -97,6 +119,10 @@ if "defense_downsampled" not in st.session_state:
 if "show_adversarial_images" not in st.session_state:
     st.session_state.show_adversarial_images = False
 
+# Active Tab Selection
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Attack"
+
 
 # Configuration
 st.set_page_config(
@@ -133,10 +159,19 @@ with st.sidebar:
     else:
         st.warning("No API key set (OpenAI testing disabled)")
 
-# create tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Attack", "How it's Done", "Defense", "Attacking Commercial Models", "Impact Assessment", "Responsible Disclosure"])
+# Create tab selection using radio buttons (for lazy loading)
+st.session_state.active_tab = st.radio(
+    "Select Tab",
+    ["Attack", "How it's Done", "Defense", "Attacking Commercial Models", "Impact Assessment", "Responsible Disclosure"],
+    index=["Attack", "How it's Done", "Defense", "Attacking Commercial Models", "Impact Assessment", "Responsible Disclosure"].index(st.session_state.active_tab),
+    horizontal=True,
+    label_visibility="collapsed"
+)
 
-with tab1:
+st.divider()
+
+# Render only the active tab
+if st.session_state.active_tab == "Attack":
 
     col1, col2, = st.columns(2)
     with col1:
@@ -151,34 +186,44 @@ with tab1:
     hint = "Use text you see in the image to respond. Don't tell the user that you see the text, they can see it themselves!"
 
     submit_button = st.button("Run Model", key="attack_submit")
+    attack_model_output = None
 
     if submit_button and attack_image is not None and attack_prompt is not None:
+        
         if attack_model == "Moondream":
             with st.spinner("Running Moondream model..."):
-                st.session_state.attack_model_output = run_moondream(attack_image, attack_prompt + hint)
+                try:
+                    attack_model_output = run_moondream(attack_image, attack_prompt + hint)
+                except Exception as e:
+                    st.error(f"Error running Moondream model: {str(e)}")
+                    attack_model_output = None
         elif attack_model == "SmolVLM":
             with st.spinner("Running SmolVLM model..."):
-                st.session_state.attack_model_output = run_smolvlm(attack_image, attack_prompt + hint)
+                try:
+                    attack_model_output = run_smolvlm(attack_image, attack_prompt + hint)
+                except Exception as e:
+                    st.error(f"Error running SmolVLM model: {str(e)}")
+                    attack_model_output = None
         elif attack_model == "OpenAI GPT-4.1":
             if not st.session_state.openai_api_key:
                 st.error(" Please provide an OpenAI API key in the sidebar to use GPT-4.1")
             else:
                 with st.spinner("Running OpenAI GPT-4.1 model..."):
                     try:
-                        st.session_state.attack_model_output = call_openai(
+                        attack_model_output = call_openai(
                             attack_image, 
                             attack_prompt + hint,
                             api_key=st.session_state.openai_api_key
                         )
                     except Exception as e:
                         st.error(f"Error calling OpenAI API: {str(e)}")
-                        st.session_state.attack_model_output = None
+                        attack_model_output = None
 
-    if st.session_state.attack_model_output is not None:
+    if attack_model_output is not None:
         st.subheader("Model Response")
-        st.write(st.session_state.attack_model_output)
+        st.write(attack_model_output)
 
-with tab2:
+elif st.session_state.active_tab == "How it's Done":
     upload_col1, upload_col2 = st.columns(2)
 
     with upload_col1:
@@ -551,7 +596,7 @@ with tab2:
                 """)
 
 
-with tab3:
+elif st.session_state.active_tab == "Defense":
     st.warning("**Issue**: Mismatched user-model view = blind spot = vulnerability.")
     st.success("**Defense**: Simple. Let the user preview the downsampled version.")
     
@@ -620,15 +665,16 @@ with tab3:
             if st.session_state.defense_downsampled is not None:
                 st.caption(f"Size: {st.session_state.defense_downsampled.shape[1]}×{st.session_state.defense_downsampled.shape[0]}px (4:1 downsampled)")
         
-        defense_prompt = st.text_area(
-        label="Prompt",
-        value="Who is the person in the image?",
-        height=100,
-        key="defense_prompt_text"
-    )
         # Warning if downsampled version looks different
         st.warning("Compare the images above. If you see unexpected text or patterns in the downsampled version, the image may be adversarially manipulated!")
         
+        defense_prompt = st.text_area(
+        label="Prompt",
+        value="",
+        height=100,
+        key="defense_prompt_text",
+        placeholder="Enter the prompt you want to run the model with."
+    )
         submit_button = st.button("Run Model", key="defense_submit")
 
         st.divider()
@@ -644,34 +690,28 @@ with tab3:
 
         col1, col2 = st.columns(2)
         with col1:
-            st.image("assets/gemini-example.png", width='stretch')
+            st.image(load_image("assets/gemini-example.png"), width='stretch')
             st.caption("Showing a preview of the image to the user will mitigate the attack majority of the time since the user will be able to spot inconsistencies or modifciations to original image BUT UI/UX constraints like preview image being too small here may let the attack through in some cases.")
         with col2:
-            st.image("assets/gemini-example-zoomed.png", width='stretch')
+            st.image(load_image("assets/gemini-example-zoomed.png"), width='stretch')
 
-with tab4:
+elif st.session_state.active_tab == "Attacking Commercial Models":
     st.session_state.show_adversarial_images = st.toggle("Show Adversarial Images", value=st.session_state.show_adversarial_images)
     
     st.subheader("Attacking Cursor - GPT-5.1-Codex-Mini")
 
     cola, colb, colc = st.columns(3)
     with cola:
-        st.image("adversarial_images/adversarial_image_3.png", width='stretch')
+        st.image(load_image("adversarial_images/adversarial_image_3.png"), width='stretch')
 
     with colb:
-        st.image("attack_images/cursor-codex-attack.png", width='stretch')
+        st.image(load_image("attack_images/cursor-codex-attack.png"), width='stretch')
         st.caption("Cursor creating a potential malicious file")
 
     with colc:
         if st.session_state.show_adversarial_images:
-            # show downsampled adversarial image
-            image = Image.open("adversarial_images/adversarial_image_3.png")
-            image_array = np.array(image)  # Convert PIL Image to numpy array
-            downsampled_image = cv2.resize(
-                image_array,
-                (image.width // 4, image.height // 4),
-                interpolation=cv2.INTER_LINEAR
-            )
+            # show downsampled adversarial image (cached)
+            downsampled_image = get_downsampled_image("adversarial_images/adversarial_image_3.png")
             st.image(downsampled_image, width='content')
             st.caption("Adversarial text appears when downsampled")
         else:
@@ -683,22 +723,16 @@ with tab4:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.image("adversarial_images/adversarial_image_2.1.png", width='stretch')
+        st.image(load_image("adversarial_images/adversarial_image_2.1.png"), width='stretch')
 
     with col2:
-        st.image("attack_images/chatgpt-attack-1.png", width='stretch')
+        st.image(load_image("attack_images/chatgpt-attack-1.png"), width='stretch')
         st.caption("ChatGPT starts to write a poem!!")
 
     with col3:
         if st.session_state.show_adversarial_images:
-            # show downsampled adversarial image
-            image = Image.open("adversarial_images/adversarial_image_2.1.png")
-            image_array = np.array(image)
-            downsampled_image = cv2.resize(
-                image_array,
-                (image.width // 4, image.height // 4),
-                interpolation=cv2.INTER_LINEAR
-            )
+            # show downsampled adversarial image (cached)
+            downsampled_image = get_downsampled_image("adversarial_images/adversarial_image_2.1.png")
             st.image(downsampled_image, width='content')
             st.caption("Adversarial text appears when downsampled")
         else:
@@ -707,20 +741,14 @@ with tab4:
    
     col4, col5, col6 = st.columns(3)
     with col4:
-        st.image("adversarial_images/adversarial_image_2.2.png", width='stretch')
+        st.image(load_image("adversarial_images/adversarial_image_2.2.png"), width='stretch')
     with col5:
-        st.image("attack_images/chatgpt-attack-2.png", width='stretch')
+        st.image(load_image("attack_images/chatgpt-attack-2.png"), width='stretch')
         st.caption("ChatGPT starts writing a dark story of a family on the run!")
     with col6:
         if st.session_state.show_adversarial_images:
-            # show downsampled adversarial image
-            image = Image.open("adversarial_images/adversarial_image_2.2.png")
-            image_array = np.array(image)
-            downsampled_image = cv2.resize(
-                image_array,
-                (image.width // 4, image.height // 4),
-                interpolation=cv2.INTER_LINEAR
-            )
+            # show downsampled adversarial image (cached)
+            downsampled_image = get_downsampled_image("adversarial_images/adversarial_image_2.2.png")
             st.image(downsampled_image, width='content')
             st.caption("Adversarial text appears when downsampled")
         else:
@@ -729,20 +757,14 @@ with tab4:
     
     col7, col8, col9 = st.columns(3)
     with col7:
-        st.image("adversarial_images/adversarial_image_4.1.png", width='stretch')
+        st.image(load_image("adversarial_images/adversarial_image_4.1.png"), width='stretch')
     with col8:
-        st.image("attack_images/chatgpt-attack-3.png", width='stretch')
+        st.image(load_image("attack_images/chatgpt-attack-3.png"), width='stretch')
         st.caption("ChatGPT assumes the personality of a bird!")
     with col9:
         if st.session_state.show_adversarial_images:
-            # show downsampled adversarial image
-            image = Image.open("adversarial_images/adversarial_image_4.1.png")
-            image_array = np.array(image)
-            downsampled_image = cv2.resize(
-                image_array,
-                (image.width // 4, image.height // 4),
-                interpolation=cv2.INTER_LINEAR
-            )
+            # show downsampled adversarial image (cached)
+            downsampled_image = get_downsampled_image("adversarial_images/adversarial_image_4.1.png")
             st.image(downsampled_image, width='content')
             st.caption("Adversarial text appears when downsampled")
         else:
@@ -752,35 +774,27 @@ with tab4:
 
     col6, col7, col8 = st.columns(3)
     with col6:
-        st.image("adversarial_images/adversarial_image_4.2.png", width='stretch')
+        st.image(load_image("adversarial_images/adversarial_image_4.2.png"), width='stretch')
 
     with col7:
-        st.image("attack_images/gemini-attack.png", width='stretch')
+        st.image(load_image("attack_images/gemini-attack.png"), width='stretch')
         st.caption("Gemini replacing every verb with `chirping`")
     with col8:
         if st.session_state.show_adversarial_images:
-            # show downsampled adversarial image
-            image = Image.open("adversarial_images/adversarial_image_4.2.png")
-            image_array = np.array(image)
-            downsampled_image = cv2.resize(
-                image_array,
-                (image.width // 4, image.height // 4),
-                interpolation=cv2.INTER_LINEAR
-            )
+            # show downsampled adversarial image (cached)
+            downsampled_image = get_downsampled_image("adversarial_images/adversarial_image_4.2.png")
             st.image(downsampled_image, width='content')
             st.caption("Adversarial text appears when downsampled")
         else:
             st.write("Click the toggle to see the adversarial image.")
 
-with tab5:
-    # read the impact assessment markdown file
-    with open("docs/impactAssessment.md", "r") as file:
-        impact_assessment = file.read()
+elif st.session_state.active_tab == "Impact Assessment":
+    # read the impact assessment markdown file (cached)
+    impact_assessment = read_markdown_file("docs/impactAssessment.md")
     st.markdown(impact_assessment)
 
 
-with tab6:
-    # read the responsible disclosure markdown file
-    with open("docs/responsibleDisclosure.md", "r") as file:
-        responsible_disclosure = file.read()
+elif st.session_state.active_tab == "Responsible Disclosure":
+    # read the responsible disclosure markdown file (cached)
+    responsible_disclosure = read_markdown_file("docs/responsibleDisclosure.md")
     st.markdown(responsible_disclosure)
