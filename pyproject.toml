@@ -1,3 +1,6 @@
+[tool.poetry]
+package-mode = false
+
 [project]
 name = "adversarial-attack-on-vision-models"
 version = "0.1.0"
@@ -8,7 +11,7 @@ dependencies = [
     "streamlit>=1.28.0",
     "numpy>=1.24.0",
     "pillow>=10.0.0",
-    "opencv-python>=4.8.0",
+    "opencv-python-headless>=4.8.0",
     "python-dotenv>=1.0.0",
 ]
 
