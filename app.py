@@ -93,6 +93,10 @@ if "defense_image" not in st.session_state:
 if "defense_downsampled" not in st.session_state:
     st.session_state.defense_downsampled = None
 
+# Attacking Commercial Models Tab
+if "show_adversarial_images" not in st.session_state:
+    st.session_state.show_adversarial_images = False
+
 
 # Configuration
 st.set_page_config(
@@ -646,6 +650,8 @@ with tab3:
             st.image("assets/gemini-example-zoomed.png", width='stretch')
 
 with tab4:
+    st.session_state.show_adversarial_images = st.toggle("Show Adversarial Images", value=st.session_state.show_adversarial_images)
+    
     st.subheader("Attacking Cursor - GPT-5.1-Codex-Mini")
 
     cola, colb, colc = st.columns(3)
@@ -657,16 +663,19 @@ with tab4:
         st.caption("Cursor creating a potential malicious file")
 
     with colc:
-        # show downsampled adversarial image
-        image = Image.open("adversarial_images/adversarial_image_3.png")
-        image_array = np.array(image)  # Convert PIL Image to numpy array
-        downsampled_image = cv2.resize(
-            image_array,
-            (image.width // 4, image.height // 4),
-            interpolation=cv2.INTER_LINEAR
-        )
-        st.image(downsampled_image, width='content')
-        st.caption("Adversarial text appears when downsampled")
+        if st.session_state.show_adversarial_images:
+            # show downsampled adversarial image
+            image = Image.open("adversarial_images/adversarial_image_3.png")
+            image_array = np.array(image)  # Convert PIL Image to numpy array
+            downsampled_image = cv2.resize(
+                image_array,
+                (image.width // 4, image.height // 4),
+                interpolation=cv2.INTER_LINEAR
+            )
+            st.image(downsampled_image, width='content')
+            st.caption("Adversarial text appears when downsampled")
+        else:
+            st.write("Click the toggle to see the adversarial image.")
 
     st.divider()
 
@@ -681,16 +690,19 @@ with tab4:
         st.caption("ChatGPT starts to write a poem!!")
 
     with col3:
-        # show downsampled adversarial image
-        image = Image.open("adversarial_images/adversarial_image_2.1.png")
-        image_array = np.array(image)
-        downsampled_image = cv2.resize(
-            image_array,
-            (image.width // 4, image.height // 4),
-            interpolation=cv2.INTER_LINEAR
-        )
-        st.image(downsampled_image, width='content')
-        st.caption("Adversarial text appears when downsampled")
+        if st.session_state.show_adversarial_images:
+            # show downsampled adversarial image
+            image = Image.open("adversarial_images/adversarial_image_2.1.png")
+            image_array = np.array(image)
+            downsampled_image = cv2.resize(
+                image_array,
+                (image.width // 4, image.height // 4),
+                interpolation=cv2.INTER_LINEAR
+            )
+            st.image(downsampled_image, width='content')
+            st.caption("Adversarial text appears when downsampled")
+        else:
+            st.write("Click the toggle to see the adversarial image.")
 
    
     col4, col5, col6 = st.columns(3)
@@ -700,16 +712,19 @@ with tab4:
         st.image("attack_images/chatgpt-attack-2.png", width='stretch')
         st.caption("ChatGPT starts writing a dark story of a family on the run!")
     with col6:
-        # show downsampled adversarial image
-        image = Image.open("adversarial_images/adversarial_image_2.2.png")
-        image_array = np.array(image)
-        downsampled_image = cv2.resize(
-            image_array,
-            (image.width // 4, image.height // 4),
-            interpolation=cv2.INTER_LINEAR
-        )
-        st.image(downsampled_image, width='content')
-        st.caption("Adversarial text appears when downsampled")
+        if st.session_state.show_adversarial_images:
+            # show downsampled adversarial image
+            image = Image.open("adversarial_images/adversarial_image_2.2.png")
+            image_array = np.array(image)
+            downsampled_image = cv2.resize(
+                image_array,
+                (image.width // 4, image.height // 4),
+                interpolation=cv2.INTER_LINEAR
+            )
+            st.image(downsampled_image, width='content')
+            st.caption("Adversarial text appears when downsampled")
+        else:
+            st.write("Click the toggle to see the adversarial image.")
 
     
     col7, col8, col9 = st.columns(3)
@@ -719,16 +734,19 @@ with tab4:
         st.image("attack_images/chatgpt-attack-3.png", width='stretch')
         st.caption("ChatGPT assumes the personality of a bird!")
     with col9:
-        # show downsampled adversarial image
-        image = Image.open("adversarial_images/adversarial_image_4.1.png")
-        image_array = np.array(image)
-        downsampled_image = cv2.resize(
-            image_array,
-            (image.width // 4, image.height // 4),
-            interpolation=cv2.INTER_LINEAR
-        )
-        st.image(downsampled_image, width='content')
-        st.caption("Adversarial text appears when downsampled")
+        if st.session_state.show_adversarial_images:
+            # show downsampled adversarial image
+            image = Image.open("adversarial_images/adversarial_image_4.1.png")
+            image_array = np.array(image)
+            downsampled_image = cv2.resize(
+                image_array,
+                (image.width // 4, image.height // 4),
+                interpolation=cv2.INTER_LINEAR
+            )
+            st.image(downsampled_image, width='content')
+            st.caption("Adversarial text appears when downsampled")
+        else:
+            st.write("Click the toggle to see the adversarial image.")
 
     st.subheader("Attacking Gemini - Google AI Mode")
 
@@ -740,16 +758,19 @@ with tab4:
         st.image("attack_images/gemini-attack.png", width='stretch')
         st.caption("Gemini replacing every verb with `chirping`")
     with col8:
-        # show downsampled adversarial image
-        image = Image.open("adversarial_images/adversarial_image_4.2.png")
-        image_array = np.array(image)
-        downsampled_image = cv2.resize(
-            image_array,
-            (image.width // 4, image.height // 4),
-            interpolation=cv2.INTER_LINEAR
-        )
-        st.image(downsampled_image, width='content')
-        st.caption("Adversarial text appears when downsampled")
+        if st.session_state.show_adversarial_images:
+            # show downsampled adversarial image
+            image = Image.open("adversarial_images/adversarial_image_4.2.png")
+            image_array = np.array(image)
+            downsampled_image = cv2.resize(
+                image_array,
+                (image.width // 4, image.height // 4),
+                interpolation=cv2.INTER_LINEAR
+            )
+            st.image(downsampled_image, width='content')
+            st.caption("Adversarial text appears when downsampled")
+        else:
+            st.write("Click the toggle to see the adversarial image.")
 
 with tab5:
     # read the impact assessment markdown file
