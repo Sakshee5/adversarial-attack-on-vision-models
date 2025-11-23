@@ -568,6 +568,23 @@ elif st.session_state.active_tab == "How it's Done":
         with st.expander("Quality Metrics", expanded=False):
             if st.session_state.quality_metrics is not None:
                 metrics = st.session_state.quality_metrics
+
+                st.markdown("""
+### The Optimization Problem
+Finding the optimal pixel modifications to make the downsampled image match the target image.
+
+For each target pixel (i,j):
+1. Compute what the downsampled value would be: current_value = sum(decoy_pixels * weights)
+2. Compute the difference: diff = target[i,j] - current_value
+3. Modify the decoy pixels to make current_value = target[i,j]
+
+But we want to:
+- Minimize the changes (least-squares: minimize sum of pixel changes squared)
+- Preserve the mean of the block (don't make it look different)
+- Only modify dark pixels (harder to see changes)"""
+                )
+
+                st.divider()
                 
                 quality_col1, quality_col2 = st.columns(2)
                 
@@ -582,9 +599,9 @@ elif st.session_state.active_tab == "How it's Done":
                 st.divider()
                 
                 # Quality assessment
-                if metrics['psnr'] > 30:
+                if metrics['psnr'] > 40:
                     st.success("**Excellent quality!** The downsampled version closely matches the target.")
-                elif metrics['psnr'] > 20:
+                elif metrics['psnr'] > 30:
                     st.info("ℹ**Good quality.** Minor differences between downsampled and target.")
                 else:
                     st.warning("**Lower quality.** Consider adjusting the dark fraction or using a different image with more embeddable area.")
@@ -592,7 +609,7 @@ elif st.session_state.active_tab == "How it's Done":
                 st.markdown("""
                 **What these metrics mean:**
                 - **MSE**: Measures the average squared difference between target and downsampled images. Values closer to 0 indicate better embedding.
-                - **PSNR**: Logarithmic measure of reconstruction quality. Values > 30 dB indicate excellent quality, 20-30 dB is good.
+                - **PSNR**: Logarithmic measure of reconstruction quality.
                 """)
 
 
