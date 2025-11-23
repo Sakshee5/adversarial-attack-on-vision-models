@@ -55,6 +55,8 @@ So we solve:
               delta can only be non-zero on dark pixels
 
 This gives us the optimal pixel modifications!
+
+All comments and explanations were written by me (Sakshee - in rough) and updated using cursor for readability.
 """
 
 from __future__ import annotations

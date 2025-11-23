@@ -16,6 +16,37 @@ The attack leverages a fundamental property of image preprocessing:
 
 The math behind it involves solving an optimization problem for each 4x4 pixel block, modifying only dark pixels (where changes are hardest to see) to create text that "materializes" during downsampling.
 
+This work is built on the foundational research from Trail of Bits' [Anamorpher](https://github.com/trailofbits/anamorpher/tree/main) project ([blog post](https://blog.trailofbits.com/2025/08/21/weaponizing-image-scaling-against-production-ai-systems/)). Key enhancements and optimizations in this implementation:
+
+### Expanded Image Compatibility
+- **Original**: Required specific decoy images with large dark regions for text embedding to work effectively
+- **Enhanced**: Works with more general-purpose images through dark region detection and coverage analysis
+
+### Optimized Target Image Generation
+- **Original**: Used plain colored backgrounds with limited manual text placement options
+- **Enhanced**: 
+  - Blends hidden text with the original downscaled image as background for better stealth
+  - Automated font size calculation based on available embeddable area
+  - Text placement optimization that adapts to image characteristics
+  - Automatic background color generation optimized for contrast and visibility post-downscaling
+
+### Explainability and Visualization
+- **Added**: Real-time coverage heatmaps showing which regions of the image are suitable for text embedding
+- **Added**: Quality metrics (MSE, PSNR) to quantify the invisibility of modifications
+- **Added**: Side-by-side comparison UI for full-resolution vs downscaled views
+
+### Comprehensive Downscaling Algorithm Testing
+- **Tested**: Bicubic, Bilinear, Lanczos, Nearest Neighbor, Box, and Hamming algorithms
+- **Finding**: Identified that bilinear interpolation is the most commonly used preprocessing technique across production systems and implemented it.
+
+### Broader Model Compatibility
+- **Original**: Demonstrated primarily on Google Gemini CLI with specific MCP server configurations
+- **Enhanced**: 
+  - Successfully tested on open-source models (Moondream, SmolVLM, CLIP)
+  - Tested on commercial APIs (GPT-4o, GPT-4o-mini, Gemini)
+  - Tested on agentic coding assistants (Cursor Codex)
+  - Includes modular test scripts for easy expansion to new models 
+
 ## Project Structure
 
 ```
